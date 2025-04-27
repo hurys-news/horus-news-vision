@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // تجاوز لملف isVirtualEvent.ts لإصلاح تحذير mozInputSource
+      "@react-aria/utils/src/isVirtualEvent": path.resolve(__dirname, "./src/utils/isVirtualEvent.ts"),
     },
   },
 }));

@@ -1,6 +1,6 @@
 
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -20,6 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { Textarea } from "@/components/ui/textarea";
+import { signInWithEmail } from '@/lib/auth';
 
 // تعريف مخطط التحقق باستخدام zod
 const formSchema = z.object({
@@ -40,7 +41,9 @@ type FormValues = z.infer<typeof formSchema>;
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
+
   // إعداد نموذج React Hook Form مع التحقق من Zod
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -52,16 +55,31 @@ const Login = () => {
   });
 
   // معالج إرسال النموذج
-  const onSubmit = (data: FormValues) => {
-    console.log('تم إرسال بيانات تسجيل الدخول:', data);
-    
-    // محاكاة عملية تسجيل الدخول الناجحة
-    toast({
-      title: "تم تسجيل الدخول بنجاح",
-      description: "مرحبًا بك في حورس نيوز",
-    });
-    
-    // في التطبيق الحقيقي، سيتم إرسال البيانات إلى API وربطها بقاعدة البيانات
+  const onSubmit = async (data: FormValues) => {
+    try {
+      setIsLoading(true);
+
+      // تسجيل الدخول باستخدام Supabase
+      const user = await signInWithEmail(data.email, data.password);
+
+      toast({
+        title: "تم تسجيل الدخول بنجاح",
+        description: `مرحبًا بك ${user.name} في حورس نيوز`,
+      });
+
+      // الانتقال إلى الصفحة الرئيسية بعد تسجيل الدخول
+      navigate('/');
+    } catch (error) {
+      console.error('خطأ في تسجيل الدخول:', error);
+
+      toast({
+        title: "فشل تسجيل الدخول",
+        description: "البريد الإلكتروني أو كلمة المرور غير صحيحة",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // إظهار أخطاء النموذج في واجهة المستخدم
@@ -76,7 +94,7 @@ const Login = () => {
       });
     }
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 md:p-8">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 md:p-8">
@@ -87,7 +105,7 @@ const Login = () => {
           <h1 className="text-2xl font-bold mb-2">تسجيل الدخول</h1>
           <p className="text-gray-600">مرحباً بعودتك، سجل دخولك للمتابعة</p>
         </div>
-        
+
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit, showFormErrors)} className="space-y-6">
             <FormField
@@ -110,7 +128,7 @@ const Login = () => {
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="password"
@@ -145,15 +163,15 @@ const Login = () => {
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="rememberMe"
               render={({ field }) => (
                 <FormItem className="flex items-center space-x-2 space-x-reverse rtl:space-x-reverse">
                   <FormControl>
-                    <Checkbox 
-                      checked={field.value} 
+                    <Checkbox
+                      checked={field.value}
                       onCheckedChange={field.onChange}
                     />
                   </FormControl>
@@ -163,17 +181,17 @@ const Login = () => {
                 </FormItem>
               )}
             />
-            
-            <Button type="submit" className="w-full">
-              تسجيل الدخول
+
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
             </Button>
-            
+
             <div className="flex items-center my-4">
               <Separator className="flex-1" />
               <span className="mx-4 text-sm text-gray-500">أو</span>
               <Separator className="flex-1" />
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <Button variant="outline" type="button" className="w-full">
                 <svg className="ml-2 h-5 w-5" viewBox="0 0 24 24">
@@ -205,7 +223,7 @@ const Login = () => {
             </div>
           </form>
         </Form>
-        
+
         <p className="mt-8 text-center text-sm text-gray-600">
           ليس لديك حساب؟{' '}
           <Link to="/register" className="font-medium text-horus-red hover:text-horus-blue transition-colors">
@@ -213,7 +231,7 @@ const Login = () => {
           </Link>
         </p>
       </div>
-      
+
       <p className="mt-8 text-center text-sm text-gray-500">
         &copy; {new Date().getFullYear()} حورس نيوز. جميع الحقوق محفوظة
       </p>

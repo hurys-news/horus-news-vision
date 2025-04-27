@@ -1,8 +1,9 @@
-// خدمة API لجلب البيانات
+// خدمة API لجلب البيانات باستخدام Supabase
 
-import { API_BASE_URL, CACHE_CONFIG } from './config';
+import { CACHE_CONFIG } from './config';
 import { NewsItem, Category, ApiResponse, Comment, User } from './types';
-import { mockNewsData } from './mockData'; // سنستخدم البيانات الوهمية مؤقتًا حتى يتم ربط API حقيقي
+import { supabase } from './supabase';
+import { Tables } from '../types/supabase';
 
 // كائن للتخزين المؤقت
 const cache: Record<string, { data: any; timestamp: number }> = {};
@@ -18,220 +19,505 @@ const isCacheValid = (key: string): boolean => {
   return now - cacheTime < ttl;
 };
 
-// دالة مساعدة لجلب البيانات مع التخزين المؤقت
-async function fetchWithCache<T>(url: string, options?: RequestInit): Promise<T> {
-  const cacheKey = url;
+// دالة مساعدة لتحويل بيانات Supabase إلى نموذج NewsItem
+const mapNewsItem = (item: Tables<'news'>): NewsItem => {
+  return {
+    id: item.id,
+    title: item.title,
+    excerpt: item.excerpt,
+    content: item.content || undefined,
+    category: '', // سيتم ملؤها لاحقًا
+    categorySlug: '', // سيتم ملؤها لاحقًا
+    image: item.image || '',
+    date: new Date(item.created_at).toLocaleDateString('ar-EG'),
+    publishedAt: item.created_at,
+    source: item.source || undefined,
+    author: item.author_id || undefined,
+    isTopStory: item.is_top_story,
+    isBreaking: item.is_breaking,
+    viewCount: item.view_count,
+    tags: item.tags || undefined
+  };
+};
+
+// دالة لجلب قائمة الأخبار
+export async function getNews(page = 1, limit = 10): Promise<ApiResponse<NewsItem>> {
+  const cacheKey = `news_${page}_${limit}`;
 
   // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
   if (isCacheValid(cacheKey)) {
-    return cache[cacheKey].data as T;
+    return cache[cacheKey].data as ApiResponse<NewsItem>;
   }
 
   try {
-    // في الوضع الحالي، سنستخدم البيانات الوهمية
-    // عندما يكون هناك API حقيقي، سنستخدم الكود التالي:
-    /*
-    const response = await fetch(`${API_BASE_URL}${url}`, options);
+    // حساب التخطي للصفحات
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
-    }
+    // جلب الأخبار من Supabase
+    const { data: newsData, count, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug)', { count: 'exact' })
+      .range(from, to)
+      .order('created_at', { ascending: false });
 
-    const data = await response.json();
-    */
+    if (error) throw error;
 
-    // محاكاة تأخير الشبكة
-    await new Promise(resolve => setTimeout(resolve, 300));
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = newsData.map(item => {
+      const newsItem = mapNewsItem(item);
+      // إضافة معلومات الفئة
+      if (item.categories) {
+        newsItem.category = item.categories.name;
+        newsItem.categorySlug = item.categories.slug;
+      }
+      return newsItem;
+    });
 
-    // استخدام البيانات الوهمية
-    let data: any;
-
-    if (url.includes('/news/')) {
-      const id = url.split('/news/')[1];
-      data = mockNewsData.find(item => item.id === id);
-    } else if (url.includes('/categories/')) {
-      const slug = url.split('/categories/')[1].split('?')[0];
-      data = {
-        data: mockNewsData.filter(item => item.categorySlug === slug),
-        meta: {
-          currentPage: 1,
-          totalPages: 1,
-          totalItems: mockNewsData.filter(item => item.categorySlug === slug).length,
-          itemsPerPage: 10
-        }
-      };
-    } else if (url === '/news') {
-      data = {
-        data: mockNewsData,
-        meta: {
-          currentPage: 1,
-          totalPages: 1,
-          totalItems: mockNewsData.length,
-          itemsPerPage: 10
-        }
-      };
-    } else if (url === '/categories') {
-      data = {
-        data: [
-          { id: '1', name: 'نبض الخبر', slug: 'pulse' },
-          { id: '2', name: 'سياسة', slug: 'politics' },
-          { id: '3', name: 'اقتصاد', slug: 'economy' },
-          { id: '4', name: 'رياضة', slug: 'sports' },
-          { id: '5', name: 'تكنولوجيا', slug: 'tech' },
-          { id: '6', name: 'عمق الحدث', slug: 'depth' },
-          { id: '7', name: 'رؤى وتحليلات', slug: 'insights' },
-          { id: '8', name: 'صوت الشارع', slug: 'street-voice' },
-          { id: '9', name: 'ملفات خاصة', slug: 'special-files' },
-          { id: '10', name: 'منصة الرأي', slug: 'opinion' },
-        ],
-        meta: {
-          currentPage: 1,
-          totalPages: 1,
-          totalItems: 10,
-          itemsPerPage: 10
-        }
-      };
-    } else if (url.includes('/search')) {
-      const query = new URLSearchParams(url.split('?')[1]).get('q') || '';
-      data = {
-        data: mockNewsData.filter(item =>
-          item.title.includes(query) ||
-          item.excerpt.includes(query) ||
-          item.content.includes(query)
-        ),
-        meta: {
-          currentPage: 1,
-          totalPages: 1,
-          totalItems: mockNewsData.filter(item =>
-            item.title.includes(query) ||
-            item.excerpt.includes(query) ||
-            item.content.includes(query)
-          ).length,
-          itemsPerPage: 10
-        }
-      };
-    }
+    const response: ApiResponse<NewsItem> = {
+      data: news,
+      meta: {
+        currentPage: page,
+        totalPages: Math.ceil((count || 0) / limit),
+        totalItems: count || 0,
+        itemsPerPage: limit
+      }
+    };
 
     // تخزين البيانات في الذاكرة المؤقتة
     cache[cacheKey] = {
-      data,
+      data: response,
       timestamp: Date.now()
     };
 
-    return data as T;
+    return response;
   } catch (error) {
-    console.error('API fetch error:', error);
+    console.error('Error fetching news:', error);
     throw error;
   }
 }
 
-// دالة لجلب قائمة الأخبار
-export async function getNews(page = 1, limit = 10): Promise<ApiResponse<NewsItem>> {
-  // محاكاة تأخير الشبكة
-  await new Promise(resolve => setTimeout(resolve, 300));
-
-  // حساب البيانات الوصفية للصفحة
-  const startIndex = (page - 1) * limit;
-  const endIndex = startIndex + limit;
-  const paginatedNews = mockNewsData.slice(startIndex, endIndex);
-
-  return {
-    data: paginatedNews,
-    meta: {
-      currentPage: page,
-      totalPages: Math.ceil(mockNewsData.length / limit),
-      totalItems: mockNewsData.length,
-      itemsPerPage: limit
-    }
-  };
-}
-
 // دالة لجلب خبر محدد بواسطة المعرف
 export async function getNewsById(id: string): Promise<NewsItem> {
-  // محاكاة تأخير الشبكة
-  await new Promise(resolve => setTimeout(resolve, 300));
+  const cacheKey = `news_${id}`;
 
-  // البحث عن الخبر بواسطة المعرف
-  const newsItem = mockNewsData.find(item => item.id === id);
-
-  if (!newsItem) {
-    throw new Error(`الخبر غير موجود: ${id}`);
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as NewsItem;
   }
 
-  return newsItem;
+  try {
+    // جلب الخبر من Supabase
+    const { data: newsItem, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug), authors(name, avatar, title)')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!newsItem) throw new Error(`الخبر غير موجود: ${id}`);
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = mapNewsItem(newsItem);
+
+    // إضافة معلومات الفئة
+    if (newsItem.categories) {
+      news.category = newsItem.categories.name;
+      news.categorySlug = newsItem.categories.slug;
+    }
+
+    // إضافة معلومات الكاتب
+    if (newsItem.authors) {
+      news.author = {
+        id: newsItem.author_id || '',
+        name: newsItem.authors.name,
+        avatar: newsItem.authors.avatar || '',
+        title: newsItem.authors.title || undefined
+      };
+    }
+
+    // تحديث عدد المشاهدات
+    await supabase
+      .from('news')
+      .update({ view_count: (newsItem.view_count || 0) + 1 })
+      .eq('id', id);
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: news,
+      timestamp: Date.now()
+    };
+
+    return news;
+  } catch (error) {
+    console.error('Error fetching news by ID:', error);
+    throw error;
+  }
 }
 
 // دالة لجلب الأخبار حسب الفئة
 export async function getNewsByCategory(slug: string, page = 1, limit = 10): Promise<ApiResponse<NewsItem>> {
-  // محاكاة تأخير الشبكة
-  await new Promise(resolve => setTimeout(resolve, 300));
+  const cacheKey = `news_category_${slug}_${page}_${limit}`;
 
-  // استخدام البيانات الوهمية للأخبار حسب الفئة
-  const filteredNews = mockNewsData.filter(item => item.categorySlug === slug);
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as ApiResponse<NewsItem>;
+  }
 
-  // حساب البيانات الوصفية للصفحة
-  const startIndex = (page - 1) * limit;
-  const endIndex = startIndex + limit;
-  const paginatedNews = filteredNews.slice(startIndex, endIndex);
+  try {
+    // أولاً، نحصل على معرف الفئة من الـ slug
+    const { data: categoryData, error: categoryError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('slug', slug)
+      .single();
 
-  return {
-    data: paginatedNews,
-    meta: {
-      currentPage: page,
-      totalPages: Math.ceil(filteredNews.length / limit),
-      totalItems: filteredNews.length,
-      itemsPerPage: limit
-    }
-  };
+    if (categoryError) throw categoryError;
+    if (!categoryData) throw new Error(`الفئة غير موجودة: ${slug}`);
+
+    // حساب التخطي للصفحات
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // جلب الأخبار من Supabase
+    const { data: newsData, count, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug)', { count: 'exact' })
+      .eq('category_id', categoryData.id)
+      .range(from, to)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = newsData.map(item => {
+      const newsItem = mapNewsItem(item);
+      // إضافة معلومات الفئة
+      if (item.categories) {
+        newsItem.category = item.categories.name;
+        newsItem.categorySlug = item.categories.slug;
+      }
+      return newsItem;
+    });
+
+    const response: ApiResponse<NewsItem> = {
+      data: news,
+      meta: {
+        currentPage: page,
+        totalPages: Math.ceil((count || 0) / limit),
+        totalItems: count || 0,
+        itemsPerPage: limit
+      }
+    };
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: response,
+      timestamp: Date.now()
+    };
+
+    return response;
+  } catch (error) {
+    console.error('Error fetching news by category:', error);
+    throw error;
+  }
 }
 
 // دالة لجلب الأخبار المميزة
 export async function getFeaturedNews(): Promise<NewsItem[]> {
-  // محاكاة تأخير الشبكة
-  await new Promise(resolve => setTimeout(resolve, 300));
+  const cacheKey = 'featured_news';
 
-  // استخدام البيانات الوهمية للأخبار المميزة
-  return mockNewsData.filter(item => item.isTopStory).slice(0, 5);
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as NewsItem[];
+  }
+
+  try {
+    // جلب الأخبار المميزة من Supabase
+    const { data: newsData, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug)')
+      .eq('is_top_story', true)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = newsData.map(item => {
+      const newsItem = mapNewsItem(item);
+      // إضافة معلومات الفئة
+      if (item.categories) {
+        newsItem.category = item.categories.name;
+        newsItem.categorySlug = item.categories.slug;
+      }
+      return newsItem;
+    });
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: news,
+      timestamp: Date.now()
+    };
+
+    return news;
+  } catch (error) {
+    console.error('Error fetching featured news:', error);
+    throw error;
+  }
 }
 
 // دالة لجلب الأخبار العاجلة
 export async function getBreakingNews(): Promise<NewsItem[]> {
-  // محاكاة تأخير الشبكة
-  await new Promise(resolve => setTimeout(resolve, 300));
+  const cacheKey = 'breaking_news';
 
-  // استخدام البيانات الوهمية للأخبار العاجلة
-  return mockNewsData.filter(item => item.isBreaking).slice(0, 5);
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as NewsItem[];
+  }
+
+  try {
+    // جلب الأخبار العاجلة من Supabase
+    const { data: newsData, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug)')
+      .eq('is_breaking', true)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = newsData.map(item => {
+      const newsItem = mapNewsItem(item);
+      // إضافة معلومات الفئة
+      if (item.categories) {
+        newsItem.category = item.categories.name;
+        newsItem.categorySlug = item.categories.slug;
+      }
+      return newsItem;
+    });
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: news,
+      timestamp: Date.now()
+    };
+
+    return news;
+  } catch (error) {
+    console.error('Error fetching breaking news:', error);
+    throw error;
+  }
 }
 
 // دالة لجلب قائمة الفئات
 export async function getCategories(): Promise<Category[]> {
-  const response = await fetchWithCache<ApiResponse<Category>>('/categories');
-  return response.data;
+  const cacheKey = 'categories';
+
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as Category[];
+  }
+
+  try {
+    // جلب الفئات من Supabase
+    const { data: categoriesData, error } = await supabase
+      .from('categories')
+      .select('*')
+      .order('name');
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const categories = categoriesData.map(item => ({
+      id: item.id,
+      name: item.name,
+      slug: item.slug,
+      description: item.description || undefined,
+      image: item.image || undefined,
+      parentId: item.parent_id || undefined
+    }));
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: categories,
+      timestamp: Date.now()
+    };
+
+    return categories;
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    throw error;
+  }
 }
 
 // دالة للبحث في الأخبار
 export async function searchNews(query: string, page = 1, limit = 10): Promise<ApiResponse<NewsItem>> {
-  return fetchWithCache<ApiResponse<NewsItem>>(`/search?q=${encodeURIComponent(query)}&page=${page}&limit=${limit}`);
+  const cacheKey = `search_${query}_${page}_${limit}`;
+
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as ApiResponse<NewsItem>;
+  }
+
+  try {
+    // حساب التخطي للصفحات
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    // البحث في الأخبار باستخدام Supabase
+    const { data: newsData, count, error } = await supabase
+      .from('news')
+      .select('*, categories(name, slug)', { count: 'exact' })
+      .or(`title.ilike.%${query}%,excerpt.ilike.%${query}%,content.ilike.%${query}%`)
+      .range(from, to)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const news = newsData.map(item => {
+      const newsItem = mapNewsItem(item);
+      // إضافة معلومات الفئة
+      if (item.categories) {
+        newsItem.category = item.categories.name;
+        newsItem.categorySlug = item.categories.slug;
+      }
+      return newsItem;
+    });
+
+    const response: ApiResponse<NewsItem> = {
+      data: news,
+      meta: {
+        currentPage: page,
+        totalPages: Math.ceil((count || 0) / limit),
+        totalItems: count || 0,
+        itemsPerPage: limit
+      }
+    };
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: response,
+      timestamp: Date.now()
+    };
+
+    return response;
+  } catch (error) {
+    console.error('Error searching news:', error);
+    throw error;
+  }
 }
 
 // دالة لجلب تعليقات خبر محدد
 export async function getCommentsByNewsId(newsId: string): Promise<Comment[]> {
-  const response = await fetchWithCache<ApiResponse<Comment>>(`/news/${newsId}/comments`);
-  return response.data;
+  const cacheKey = `comments_${newsId}`;
+
+  // التحقق من وجود بيانات مخزنة مؤقتًا صالحة
+  if (isCacheValid(cacheKey)) {
+    return cache[cacheKey].data as Comment[];
+  }
+
+  try {
+    // جلب التعليقات من Supabase
+    const { data: commentsData, error } = await supabase
+      .from('comments')
+      .select('*, profiles(name, avatar)')
+      .eq('news_id', newsId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    const comments = commentsData.map(item => ({
+      id: item.id,
+      newsId: item.news_id,
+      userId: item.user_id,
+      userName: item.profiles?.name || 'مستخدم مجهول',
+      userAvatar: item.profiles?.avatar || undefined,
+      content: item.content,
+      date: new Date(item.created_at).toLocaleDateString('ar-EG'),
+      likes: item.likes || 0,
+      replies: [] // سيتم ملؤها لاحقًا إذا كان هناك ردود
+    }));
+
+    // تخزين البيانات في الذاكرة المؤقتة
+    cache[cacheKey] = {
+      data: comments,
+      timestamp: Date.now()
+    };
+
+    return comments;
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    throw error;
+  }
 }
 
-// دالة لإضافة تعليق (هذه ستحتاج إلى طلب POST حقيقي)
+// دالة لإضافة تعليق
 export async function addComment(newsId: string, comment: Omit<Comment, 'id' | 'date' | 'likes'>): Promise<Comment> {
-  // هذه الدالة ستحتاج إلى تنفيذ حقيقي عند ربط API
-  // حاليًا سنعيد بيانات وهمية
-  return {
-    id: Math.random().toString(36).substring(2, 9),
-    newsId,
-    userId: comment.userId,
-    userName: comment.userName,
-    userAvatar: comment.userAvatar,
-    content: comment.content,
-    date: new Date().toISOString(),
-    likes: 0
-  };
+  try {
+    // إضافة التعليق إلى Supabase
+    const { data, error } = await supabase
+      .from('comments')
+      .insert({
+        news_id: newsId,
+        user_id: comment.userId,
+        content: comment.content,
+        created_at: new Date().toISOString(),
+        likes: 0
+      })
+      .select('*, profiles(name, avatar)')
+      .single();
+
+    if (error) throw error;
+
+    // تحويل البيانات إلى النموذج المطلوب
+    return {
+      id: data.id,
+      newsId: data.news_id,
+      userId: data.user_id,
+      userName: data.profiles?.name || comment.userName,
+      userAvatar: data.profiles?.avatar || comment.userAvatar,
+      content: data.content,
+      date: new Date(data.created_at).toLocaleDateString('ar-EG'),
+      likes: data.likes || 0
+    };
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    throw error;
+  }
+}
+
+// دالة للتحقق من حالة المصادقة
+export async function getCurrentUser(): Promise<User | null> {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+
+    if (error) throw error;
+    if (!session) return null;
+
+    // جلب معلومات الملف الشخصي
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .single();
+
+    if (profileError && profileError.code !== 'PGRST116') throw profileError;
+
+    return {
+      id: session.user.id,
+      name: profile?.name || session.user.email?.split('@')[0] || 'مستخدم',
+      email: session.user.email || '',
+      avatar: profile?.avatar || undefined,
+      role: profile?.role || 'user',
+      savedNews: profile?.saved_news || [],
+      followedCategories: profile?.followed_categories || []
+    };
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
 }

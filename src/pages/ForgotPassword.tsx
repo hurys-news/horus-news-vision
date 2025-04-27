@@ -17,6 +17,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { toast } from '@/hooks/use-toast';
+import { resetPassword } from '@/lib/auth';
 
 // تعريف مخطط التحقق باستخدام zod
 const formSchema = z.object({
@@ -30,7 +31,8 @@ type FormValues = z.infer<typeof formSchema>;
 
 const ForgotPassword = () => {
   const [isSubmitted, setIsSubmitted] = useState(false);
-  
+  const [isLoading, setIsLoading] = useState(false);
+
   // إعداد نموذج React Hook Form مع التحقق من Zod
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -40,20 +42,32 @@ const ForgotPassword = () => {
   });
 
   // معالج إرسال النموذج
-  const onSubmit = (data: FormValues) => {
-    console.log('تم إرسال طلب استعادة كلمة المرور:', data);
-    
-    // محاكاة إرسال رابط إعادة تعيين كلمة المرور
-    setIsSubmitted(true);
-    
-    toast({
-      title: "تم إرسال طلب استعادة كلمة المرور",
-      description: "يرجى التحقق من بريدك الإلكتروني للحصول على تعليمات إعادة تعيين كلمة المرور",
-    });
-    
-    // في التطبيق الحقيقي، سيتم إرسال البيانات إلى API وربطها بقاعدة البيانات
+  const onSubmit = async (data: FormValues) => {
+    try {
+      setIsLoading(true);
+
+      // إرسال طلب إعادة تعيين كلمة المرور باستخدام Supabase
+      await resetPassword(data.email);
+
+      setIsSubmitted(true);
+
+      toast({
+        title: "تم إرسال طلب استعادة كلمة المرور",
+        description: "يرجى التحقق من بريدك الإلكتروني للحصول على تعليمات إعادة تعيين كلمة المرور",
+      });
+    } catch (error) {
+      console.error('خطأ في إرسال طلب استعادة كلمة المرور:', error);
+
+      toast({
+        title: "فشل إرسال طلب استعادة كلمة المرور",
+        description: "حدث خطأ أثناء معالجة طلبك. يرجى المحاولة مرة أخرى لاحقًا.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 md:p-8">
       <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 md:p-8">
@@ -64,7 +78,7 @@ const ForgotPassword = () => {
           <h1 className="text-2xl font-bold mb-2">استعادة كلمة المرور</h1>
           <p className="text-gray-600">أدخل بريدك الإلكتروني لاستعادة كلمة المرور</p>
         </div>
-        
+
         {isSubmitted ? (
           <div className="text-center space-y-6">
             <div className="bg-green-50 text-green-700 p-4 rounded-lg">
@@ -101,11 +115,11 @@ const ForgotPassword = () => {
                   </FormItem>
                 )}
               />
-              
-              <Button type="submit" className="w-full">
-                استعادة كلمة المرور
+
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? 'جاري إرسال الطلب...' : 'استعادة كلمة المرور'}
               </Button>
-              
+
               <p className="text-center">
                 <Link to="/login" className="text-sm text-horus-blue hover:text-horus-red transition-colors">
                   العودة إلى تسجيل الدخول
@@ -115,7 +129,7 @@ const ForgotPassword = () => {
           </Form>
         )}
       </div>
-      
+
       <p className="mt-8 text-center text-sm text-gray-500">
         &copy; {new Date().getFullYear()} حورس نيوز. جميع الحقوق محفوظة
       </p>

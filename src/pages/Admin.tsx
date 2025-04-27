@@ -15,11 +15,14 @@ import NewsEditor from '@/components/NewsEditor';
 import Logo from '@/components/Logo';
 import { toast } from '@/hooks/use-toast';
 import { NewsItem } from '@/components/NewsCard';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
+import { Category } from '@/lib/types';
 
 type ContentType = 'news' | 'article' | 'opinion';
 
-// كل التصنيفات المتاحة للأخبار
-const CATEGORIES = [
+// سيتم جلب التصنيفات من Supabase
+const DEFAULT_CATEGORIES = [
   'سياسة',
   'اقتصاد',
   'رياضة',
@@ -35,10 +38,10 @@ const CATEGORIES = [
 ];
 
 // مكون لعرض سجل التغييرات
-const AuditLogItem = ({ action, user, date, content }: { 
-  action: string; 
-  user: string; 
-  date: string; 
+const AuditLogItem = ({ action, user, date, content }: {
+  action: string;
+  user: string;
+  date: string;
   content: string;
 }) => (
   <div className="border-b pb-3 pt-3 first:pt-0">
@@ -52,11 +55,14 @@ const AuditLogItem = ({ action, user, date, content }: {
 );
 
 const Admin = () => {
+  const { user } = useAuth();
   const [selectedTab, setSelectedTab] = useState<string>('dashboard');
+
   // بيانات المحتوى الجديد
   const [title, setTitle] = useState<string>('');
   const [content, setContent] = useState<string>('');
   const [category, setCategory] = useState<string>('');
+  const [categoryId, setCategoryId] = useState<string>('');
   const [contentType, setContentType] = useState<ContentType>('news');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -64,12 +70,27 @@ const Admin = () => {
   const [isTopStory, setIsTopStory] = useState<boolean>(false);
   const [isBreaking, setIsBreaking] = useState<boolean>(false);
   const [publishDate, setPublishDate] = useState<string>('');
-  
-  // بيانات للأخبار المخزنة (محاكاة قاعدة البيانات)
+  const [tags, setTags] = useState<string>('');
+
+  // بيانات للأخبار المخزنة
   const [savedNews, setSavedNews] = useState<NewsItem[]>([]);
   const [editingNewsId, setEditingNewsId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // بيانات الفئات
+  const [categories, setCategories] = useState<Category[]>([]);
+
+  // حالة التحميل
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  // إحصائيات
+  const [stats, setStats] = useState({
+    totalNews: 0,
+    totalViews: 0,
+    pendingReviews: 0
+  });
 
   // سجل التغييرات (Audit Log)
   const [auditLog, setAuditLog] = useState<{
@@ -78,69 +99,122 @@ const Admin = () => {
     user: string;
     date: string;
     content: string;
-  }[]>([
-    {
-      id: 1,
-      action: 'إضافة محتوى',
-      user: 'أحمد محمد',
-      date: '23 أبريل 2025 - 10:30',
-      content: 'إضافة خبر جديد: توقيع اتفاقية التعاون الاقتصادي بين مصر والإمارات'
-    },
-    {
-      id: 2,
-      action: 'تعديل محتوى',
-      user: 'سارة خالد',
-      date: '22 أبريل 2025 - 14:45',
-      content: 'تعديل خبر: انطلاق فعاليات مؤتمر القمة العربية في الرياض'
-    },
-    {
-      id: 3,
-      action: 'حذف محتوى',
-      user: 'محمود علي',
-      date: '21 أبريل 2025 - 09:15',
-      content: 'حذف خبر: إطلاق منصة تعليمية جديدة'
-    }
-  ]);
+  }[]>([]);
 
-  // محاكاة تحميل الأخبار عند بدء التطبيق
+  // جلب الفئات من Supabase
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+
+      setCategories(data.map(cat => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description || undefined,
+        image: cat.image || undefined
+      })));
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      toast({
+        title: "خطأ",
+        description: "حدث خطأ أثناء جلب الفئات",
+        variant: "destructive"
+      });
+    }
+  };
+
+  // جلب الأخبار من Supabase
+  const fetchNews = async () => {
+    try {
+      setIsLoading(true);
+
+      const { data, error } = await supabase
+        .from('news')
+        .select(`
+          *,
+          categories:category_id (id, name, slug)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedNews = data.map(item => ({
+        id: item.id,
+        title: item.title,
+        excerpt: item.excerpt,
+        content: item.content || '',
+        category: item.categories?.name || 'بدون تصنيف',
+        categoryId: item.category_id,
+        image: item.image || 'https://source.unsplash.com/random/800x600/?news',
+        date: new Date(item.created_at).toLocaleDateString('ar-EG'),
+        source: item.source || '',
+        isTopStory: item.is_top_story,
+        isBreaking: item.is_breaking,
+        viewCount: item.view_count,
+        tags: item.tags ? item.tags.join(', ') : ''
+      }));
+
+      setSavedNews(formattedNews);
+
+      // تحديث الإحصائيات
+      setStats({
+        totalNews: formattedNews.length,
+        totalViews: formattedNews.reduce((sum, item) => sum + (item.viewCount || 0), 0),
+        pendingReviews: 0 // يمكن تحديثه لاحقًا إذا كان هناك حالة للمراجعة
+      });
+    } catch (error) {
+      console.error('Error fetching news:', error);
+      toast({
+        title: "خطأ",
+        description: "حدث خطأ أثناء جلب الأخبار",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // جلب سجل التغييرات
+  const fetchAuditLog = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('audit_log')
+        .select(`
+          *,
+          profiles:user_id (name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      const formattedLog = data.map((log, index) => ({
+        id: index + 1,
+        action: log.action,
+        user: log.profiles?.name || 'مستخدم غير معروف',
+        date: new Date(log.created_at).toLocaleDateString('ar-EG', {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        }),
+        content: log.content
+      }));
+
+      setAuditLog(formattedLog);
+    } catch (error) {
+      console.error('Error fetching audit log:', error);
+    }
+  };
+
+  // جلب البيانات عند تحميل الصفحة
   useEffect(() => {
-    // نحاكي تأخير الاتصال بقاعدة البيانات
-    const timer = setTimeout(() => {
-      // هذه بيانات وهمية تمثل أخبار مخزنة في قاعدة البيانات
-      const mockNewsData: NewsItem[] = [
-        {
-          id: '1',
-          title: 'توقيع اتفاقية التعاون الاقتصادي بين مصر والإمارات بقيمة 20 مليار دولار',
-          excerpt: 'تم توقيع اتفاقية تعاون اقتصادي بين مصر والإمارات بقيمة 20 مليار دولار، تشمل مشاريع في مجالات الطاقة المتجددة والتصنيع والتكنولوجيا والسياحة.',
-          category: 'اقتصاد',
-          image: 'https://source.unsplash.com/random/800x600/?business',
-          date: 'منذ 3 ساعات',
-          source: 'وكالة أنباء الشرق الأوسط',
-          isTopStory: true
-        },
-        {
-          id: '2',
-          title: 'انطلاق فعاليات مؤتمر القمة العربية في الرياض بمشاركة 18 دولة',
-          excerpt: 'بدأت اليوم فعاليات مؤتمر القمة العربية في العاصمة السعودية الرياض، بمشاركة قادة 18 دولة عربية لمناقشة التحديات الإقليمية الراهنة.',
-          category: 'سياسة',
-          image: 'https://source.unsplash.com/random/800x600/?conference',
-          date: 'منذ 5 ساعات'
-        },
-        {
-          id: '3',
-          title: 'إطلاق أول قمر صناعي عربي مشترك لرصد التغيرات المناخية في المنطقة',
-          excerpt: 'أعلنت وكالات الفضاء في كل من الإمارات ومصر والسعودية عن إطلاق أول قمر صناعي عربي مشترك مخصص لرصد التغيرات المناخية في المنطقة العربية.',
-          category: 'تكنولوجيا',
-          image: 'https://source.unsplash.com/random/800x600/?satellite',
-          date: 'منذ يوم واحد',
-          isBreaking: true
-        }
-      ];
-      
-      setSavedNews(mockNewsData);
-    }, 500);
-    
-    return () => clearTimeout(timer);
+    fetchCategories();
+    fetchNews();
+    fetchAuditLog();
   }, []);
 
   // التعامل مع اختيار الصورة
@@ -157,7 +231,7 @@ const Admin = () => {
         });
         return;
       }
-      
+
       setSelectedImage(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -168,8 +242,8 @@ const Admin = () => {
   };
 
   // نشر أو تحديث المحتوى
-  const handlePublish = () => {
-    if (!title || !content || !category) {
+  const handlePublish = async () => {
+    if (!title || !content || !categoryId) {
       toast({
         title: "لا يمكن النشر",
         description: "يرجى ملء جميع الحقول المطلوبة",
@@ -178,155 +252,232 @@ const Admin = () => {
       return;
     }
 
-    // توليد معرف فريد للخبر الجديد أو استخدام المعرف الحالي عند التحرير
-    const newsId = editingNewsId || `news-${Date.now()}`;
-    
-    // تاريخ النشر (الآن أو التاريخ المحدد)
-    const finalPublishDate = publishDate || new Intl.DateTimeFormat('ar-EG', {
-      dateStyle: 'medium',
-      timeStyle: 'short'
-    }).format(new Date());
-    
-    // إنشاء كائن الخبر
-    const newsItem: NewsItem = {
-      id: newsId,
-      title,
-      excerpt: content.substring(0, 150) + '...',  // اقتطاف من المحتوى
-      category,
-      image: imagePreview || 'https://source.unsplash.com/random/800x600/?news',
-      date: finalPublishDate,
-      source,
-      isTopStory,
-      isBreaking
-    };
+    try {
+      setIsSaving(true);
 
-    if (editingNewsId) {
-      // تحديث خبر موجود
-      setSavedNews(savedNews.map(item => item.id === editingNewsId ? newsItem : item));
-      
-      // إضافة سجل التعديل
-      setAuditLog([{
-        id: auditLog.length + 1,
-        action: 'تعديل محتوى',
-        user: 'أحمد محمد',
-        date: new Intl.DateTimeFormat('ar-EG', {
-          dateStyle: 'medium',
-          timeStyle: 'short'
-        }).format(new Date()),
-        content: `تعديل خبر: ${title}`
-      }, ...auditLog]);
-      
+      // تحضير البيانات
+      const tagsArray = tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+
+      // تحضير بيانات الخبر
+      const newsData = {
+        title,
+        excerpt: content.substring(0, 150) + '...',
+        content,
+        category_id: categoryId,
+        image: imagePreview,
+        source,
+        is_top_story: isTopStory,
+        is_breaking: isBreaking,
+        tags: tagsArray.length > 0 ? tagsArray : null
+      };
+
+      let result;
+
+      if (editingNewsId) {
+        // تحديث خبر موجود
+        result = await supabase
+          .from('news')
+          .update({
+            ...newsData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', editingNewsId);
+
+        if (result.error) throw result.error;
+
+        // إضافة سجل التعديل
+        await supabase.from('audit_log').insert({
+          action: 'تعديل محتوى',
+          user_id: user?.id,
+          content: `تعديل خبر: ${title}`,
+          created_at: new Date().toISOString()
+        });
+
+        toast({
+          title: "تم التحديث بنجاح",
+          description: "تم تحديث المحتوى ونشره على الموقع"
+        });
+
+        // إلغاء وضع التحرير
+        setEditingNewsId(null);
+      } else {
+        // إضافة خبر جديد
+        result = await supabase
+          .from('news')
+          .insert({
+            ...newsData,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            view_count: 0
+          });
+
+        if (result.error) throw result.error;
+
+        // إضافة سجل النشر
+        await supabase.from('audit_log').insert({
+          action: 'إضافة محتوى',
+          user_id: user?.id,
+          content: `إضافة خبر جديد: ${title}`,
+          created_at: new Date().toISOString()
+        });
+
+        toast({
+          title: "تم النشر بنجاح",
+          description: "تم حفظ المحتوى ونشره على الموقع"
+        });
+      }
+
+      // إعادة تحميل الأخبار وسجل التغييرات
+      fetchNews();
+      fetchAuditLog();
+
+      // إعادة تعيين النموذج
+      resetForm();
+    } catch (error) {
+      console.error('Error publishing content:', error);
       toast({
-        title: "تم التحديث بنجاح",
-        description: "تم تحديث المحتوى ونشره على الموقع"
+        title: "خطأ",
+        description: "حدث خطأ أثناء حفظ المحتوى",
+        variant: "destructive"
       });
-      
-      // إلغاء وضع التحرير
-      setEditingNewsId(null);
-    } else {
-      // إضافة خبر جديد
-      setSavedNews([newsItem, ...savedNews]);
-      
-      // إضافة سجل النشر
-      setAuditLog([{
-        id: auditLog.length + 1,
-        action: 'إضافة محتوى',
-        user: 'أحمد محمد',
-        date: new Intl.DateTimeFormat('ar-EG', {
-          dateStyle: 'medium',
-          timeStyle: 'short'
-        }).format(new Date()),
-        content: `إضافة خبر جديد: ${title}`
-      }, ...auditLog]);
-      
-      toast({
-        title: "تم النشر بنجاح",
-        description: "تم حفظ المحتوى ونشره على الموقع"
-      });
+    } finally {
+      setIsSaving(false);
     }
-
-    // إعادة تعيين النموذج
-    resetForm();
   };
-  
+
   // وظيفة إعادة تعيين النموذج
   const resetForm = () => {
     setTitle('');
     setContent('');
     setCategory('');
+    setCategoryId('');
     setSource('');
     setSelectedImage(null);
     setImagePreview(null);
     setIsTopStory(false);
     setIsBreaking(false);
     setPublishDate('');
+    setTags('');
+    setEditingNewsId(null);
   };
-  
+
   // وظيفة تحرير خبر موجود
-  const handleEdit = (newsId: string) => {
-    const newsToEdit = savedNews.find(news => news.id === newsId);
-    if (newsToEdit) {
-      setTitle(newsToEdit.title);
-      setContent(newsToEdit.excerpt.replace('...', ''));  // هنا نحتاج المحتوى الكامل في التطبيق الحقيقي
-      setCategory(newsToEdit.category);
-      setImagePreview(newsToEdit.image);
-      setSource(newsToEdit.source || '');
-      setIsTopStory(!!newsToEdit.isTopStory);
-      setIsBreaking(!!newsToEdit.isBreaking);
-      setPublishDate(newsToEdit.date);
+  const handleEdit = async (newsId: string) => {
+    try {
+      // جلب الخبر من Supabase للحصول على البيانات الكاملة
+      const { data, error } = await supabase
+        .from('news')
+        .select(`
+          *,
+          categories:category_id (id, name)
+        `)
+        .eq('id', newsId)
+        .single();
+
+      if (error) throw error;
+      if (!data) {
+        toast({
+          title: "خطأ",
+          description: "لم يتم العثور على الخبر",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // تعبئة النموذج بالبيانات
+      setTitle(data.title);
+      setContent(data.content || '');
+      setCategory(data.categories?.name || '');
+      setCategoryId(data.category_id);
+      setImagePreview(data.image || null);
+      setSource(data.source || '');
+      setIsTopStory(data.is_top_story);
+      setIsBreaking(data.is_breaking);
+      setTags(data.tags ? data.tags.join(', ') : '');
       setEditingNewsId(newsId);
       setSelectedTab('createContent');  // الانتقال إلى تبويب الإنشاء/التحرير
+    } catch (error) {
+      console.error('Error fetching news for edit:', error);
+      toast({
+        title: "خطأ",
+        description: "حدث خطأ أثناء تحميل بيانات الخبر",
+        variant: "destructive"
+      });
     }
   };
-  
+
   // وظيفة حذف خبر
-  const handleDelete = (newsId: string) => {
-    // البحث عن الخبر المحدد لاستخدام عنوانه في سجل الحذف
-    const newsToDelete = savedNews.find(news => news.id === newsId);
-    
-    // حذف الخبر من القائمة
-    setSavedNews(savedNews.filter(news => news.id !== newsId));
-    
-    // إضافة سجل الحذف
-    if (newsToDelete) {
-      setAuditLog([{
-        id: auditLog.length + 1,
+  const handleDelete = async (newsId: string) => {
+    try {
+      // البحث عن الخبر المحدد لاستخدام عنوانه في سجل الحذف
+      const newsToDelete = savedNews.find(news => news.id === newsId);
+
+      if (!newsToDelete) {
+        toast({
+          title: "خطأ",
+          description: "لم يتم العثور على الخبر",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // حذف الخبر من Supabase
+      const { error } = await supabase
+        .from('news')
+        .delete()
+        .eq('id', newsId);
+
+      if (error) throw error;
+
+      // إضافة سجل الحذف
+      await supabase.from('audit_log').insert({
         action: 'حذف محتوى',
-        user: 'أحمد محمد',
-        date: new Intl.DateTimeFormat('ar-EG', {
-          dateStyle: 'medium',
-          timeStyle: 'short'
-        }).format(new Date()),
-        content: `حذف خبر: ${newsToDelete.title}`
-      }, ...auditLog]);
+        user_id: user?.id,
+        content: `حذف خبر: ${newsToDelete.title}`,
+        created_at: new Date().toISOString()
+      });
+
+      // تحديث قائمة الأخبار
+      setSavedNews(savedNews.filter(news => news.id !== newsId));
+
+      toast({
+        title: "تم الحذف",
+        description: "تم حذف المحتوى بنجاح"
+      });
+
+      // إعادة تحميل البيانات
+      fetchNews();
+      fetchAuditLog();
+    } catch (error) {
+      console.error('Error deleting news:', error);
+      toast({
+        title: "خطأ",
+        description: "حدث خطأ أثناء حذف المحتوى",
+        variant: "destructive"
+      });
     }
-    
-    toast({
-      title: "تم الحذف",
-      description: "تم حذف المحتوى بنجاح"
-    });
   };
-  
+
   // تصفية الأخبار حسب البحث والتصنيف
   const filteredNews = savedNews.filter(news => {
-    const matchesSearch = news.title.includes(searchTerm) || 
-                         news.excerpt.includes(searchTerm) || 
+    const matchesSearch = news.title.includes(searchTerm) ||
+                         news.excerpt.includes(searchTerm) ||
                          (news.source && news.source.includes(searchTerm));
     const matchesCategory = categoryFilter === 'all' || news.category === categoryFilter;
-    
+
     return matchesSearch && matchesCategory;
   });
 
   return (
     <div className="flex min-h-screen bg-gray-50">
       <AdminSidebar selectedTab={selectedTab} setSelectedTab={setSelectedTab} />
-      
+
       <div className="flex-1 flex flex-col">
         <Header />
-        
+
         <main className="flex-1 p-6">
           <h1 className="text-2xl font-bold mb-6 text-horus-blue">لوحة تحكم حورس نيوز</h1>
-          
+
           <Tabs value={selectedTab} onValueChange={setSelectedTab} className="w-full">
             <TabsList className="mb-4 bg-gradient-to-r from-horus-blue/10 to-horus-red/10 p-1">
               <TabsTrigger value="dashboard" className="data-[state=active]:bg-white">الرئيسية</TabsTrigger>
@@ -336,25 +487,31 @@ const Admin = () => {
               <TabsTrigger value="users" className="data-[state=active]:bg-white">المستخدمون</TabsTrigger>
               <TabsTrigger value="settings" className="data-[state=active]:bg-white">الإعدادات</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="dashboard">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <Card className="p-6 shadow-sm hover:shadow-md transition-shadow">
                   <h3 className="text-lg font-medium mb-2">إجمالي المقالات</h3>
-                  <p className="text-3xl font-bold text-horus-blue">{savedNews.length}</p>
+                  <p className="text-3xl font-bold text-horus-blue">{stats.totalNews}</p>
                 </Card>
-                
+
                 <Card className="p-6 shadow-sm hover:shadow-md transition-shadow">
-                  <h3 className="text-lg font-medium mb-2">الزيارات اليوم</h3>
-                  <p className="text-3xl font-bold text-horus-red">4,287</p>
+                  <h3 className="text-lg font-medium mb-2">إجمالي المشاهدات</h3>
+                  <p className="text-3xl font-bold text-horus-red">{stats.totalViews}</p>
                 </Card>
-                
+
                 <Card className="p-6 shadow-sm hover:shadow-md transition-shadow">
-                  <h3 className="text-lg font-medium mb-2">مقالات في انتظار المراجعة</h3>
-                  <p className="text-3xl font-bold text-horus-gold">12</p>
+                  <h3 className="text-lg font-medium mb-2">عدد الفئات</h3>
+                  <p className="text-3xl font-bold text-horus-gold">{categories.length}</p>
                 </Card>
               </div>
-              
+
+              {isLoading ? (
+                <div className="flex justify-center items-center h-40">
+                  <p className="text-gray-500">جاري تحميل البيانات...</p>
+                </div>
+              ) : (
+
               <Card className="mt-6 p-6 shadow-sm">
                 <h3 className="text-lg font-medium mb-4">المحتوى الأكثر قراءة</h3>
                 <div className="space-y-4">
@@ -364,23 +521,24 @@ const Admin = () => {
                         <p className="font-medium">{item.title}</p>
                         <p className="text-sm text-gray-500">{item.date}</p>
                       </div>
-                      <p className="text-horus-blue font-bold">1,245 مشاهدة</p>
+                      <p className="text-horus-blue font-bold">{item.viewCount || 0} مشاهدة</p>
                     </div>
                   ))}
                 </div>
               </Card>
+              )}
             </TabsContent>
-            
+
             <TabsContent value="createContent">
               <Card className="p-6 shadow-sm">
                 <h3 className="text-xl font-medium mb-6 border-r-4 border-horus-blue pr-3">
                   {editingNewsId ? 'تعديل محتوى' : 'إنشاء محتوى جديد'}
                 </h3>
-                
+
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium mb-1">نوع المحتوى</label>
-                    <Select 
+                    <Select
                       value={contentType}
                       onValueChange={(value) => setContentType(value as ContentType)}
                     >
@@ -394,30 +552,43 @@ const Admin = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">العنوان</label>
-                    <Input 
+                    <Input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="أدخل عنوان المحتوى"
                       className="border-horus-blue/20 focus:border-horus-blue"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">التصنيف</label>
-                    <Select 
-                      value={category}
-                      onValueChange={setCategory}
+                    <Select
+                      value={categoryId}
+                      onValueChange={(value) => {
+                        setCategoryId(value);
+                        // تحديث اسم الفئة أيضًا للعرض
+                        const selectedCategory = categories.find(cat => cat.id === value);
+                        if (selectedCategory) {
+                          setCategory(selectedCategory.name);
+                        }
+                      }}
                     >
                       <SelectTrigger className="border-horus-blue/20 focus:border-horus-blue">
                         <SelectValue placeholder="اختر تصنيف المحتوى" />
                       </SelectTrigger>
                       <SelectContent>
-                        {CATEGORIES.map((cat) => (
-                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                        ))}
+                        {categories.length > 0 ? (
+                          categories.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                          ))
+                        ) : (
+                          DEFAULT_CATEGORIES.map((cat) => (
+                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -425,17 +596,17 @@ const Admin = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-1">المصدر</label>
-                      <Input 
+                      <Input
                         value={source}
                         onChange={(e) => setSource(e.target.value)}
                         placeholder="أدخل مصدر الخبر"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium mb-1">تاريخ النشر (اختياري)</label>
-                      <Input 
+                      <Input
                         type="datetime-local"
                         value={publishDate}
                         onChange={(e) => setPublishDate(e.target.value)}
@@ -443,32 +614,45 @@ const Admin = () => {
                       />
                     </div>
                   </div>
-                  
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">الوسوم (مفصولة بفواصل)</label>
+                    <Input
+                      value={tags}
+                      onChange={(e) => setTags(e.target.value)}
+                      placeholder="مثال: سياسة, اقتصاد, مصر"
+                      className="border-horus-blue/20 focus:border-horus-blue"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      أدخل الوسوم مفصولة بفواصل لتسهيل البحث عن المحتوى
+                    </p>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="flex items-center space-x-2 space-x-reverse">
-                      <Checkbox 
-                        id="topStory" 
+                      <Checkbox
+                        id="topStory"
                         checked={isTopStory}
                         onCheckedChange={(checked) => setIsTopStory(checked as boolean)}
                       />
                       <Label htmlFor="topStory">إضافة كخبر مميز (Top Story)</Label>
                     </div>
-                    
+
                     <div className="flex items-center space-x-2 space-x-reverse">
-                      <Checkbox 
-                        id="breaking" 
+                      <Checkbox
+                        id="breaking"
                         checked={isBreaking}
                         onCheckedChange={(checked) => setIsBreaking(checked as boolean)}
                       />
                       <Label htmlFor="breaking">وسم كخبر عاجل</Label>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">الصورة الرئيسية</label>
                     <div className="flex items-center gap-4">
-                      <Input 
-                        type="file" 
+                      <Input
+                        type="file"
                         onChange={handleImageChange}
                         accept="image/jpeg,image/png,image/gif,image/svg+xml,image/webp"
                         className="border-horus-blue/20 focus:border-horus-blue"
@@ -476,7 +660,7 @@ const Admin = () => {
                       {imagePreview && (
                         <div className="relative w-20 h-20 border rounded overflow-hidden">
                           <img src={imagePreview} alt="معاينة" className="w-full h-full object-cover" />
-                          <button 
+                          <button
                             className="absolute top-1 right-1 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs"
                             onClick={() => {
                               setSelectedImage(null);
@@ -492,27 +676,36 @@ const Admin = () => {
                       صيغ الصور المدعومة: JPG, PNG, GIF, SVG, WEBP
                     </p>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-1">المحتوى</label>
                     <div className="bg-white rounded-md overflow-hidden">
                       <NewsEditor value={content} onChange={setContent} />
                     </div>
                   </div>
-                  
+
                   <div className="flex gap-3">
-                    <Button 
-                      onClick={handlePublish} 
+                    <Button
+                      onClick={handlePublish}
                       className="mt-4 bg-horus-blue hover:bg-horus-blue/90 text-white"
+                      disabled={isSaving}
                     >
-                      {editingNewsId ? 'حفظ التعديلات' : 'نشر المحتوى'}
+                      {isSaving ? (
+                        <>
+                          <span className="animate-spin ml-2">⏳</span>
+                          {editingNewsId ? 'جاري الحفظ...' : 'جاري النشر...'}
+                        </>
+                      ) : (
+                        editingNewsId ? 'حفظ التعديلات' : 'نشر المحتوى'
+                      )}
                     </Button>
-                    
+
                     {editingNewsId && (
-                      <Button 
-                        onClick={resetForm} 
+                      <Button
+                        onClick={resetForm}
                         className="mt-4"
                         variant="outline"
+                        disabled={isSaving}
                       >
                         إلغاء
                       </Button>
@@ -521,20 +714,20 @@ const Admin = () => {
                 </div>
               </Card>
             </TabsContent>
-            
+
             <TabsContent value="manageContent">
               <Card className="p-6 shadow-sm">
                 <h3 className="text-xl font-medium mb-6 border-r-4 border-horus-blue pr-3">إدارة المحتوى الحالي</h3>
-                
+
                 <div className="flex flex-col md:flex-row gap-4 mb-6">
-                  <Input 
-                    placeholder="البحث عن محتوى..." 
+                  <Input
+                    placeholder="البحث عن محتوى..."
                     className="max-w-sm border-horus-blue/20 focus:border-horus-blue"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
-                  <Select 
-                    value={categoryFilter} 
+                  <Select
+                    value={categoryFilter}
                     onValueChange={setCategoryFilter}
                   >
                     <SelectTrigger className="w-[180px] border-horus-blue/20 focus:border-horus-blue">
@@ -542,28 +735,39 @@ const Admin = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">جميع التصنيفات</SelectItem>
-                      {CATEGORIES.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                      ))}
+                      {categories.length > 0 ? (
+                        categories.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                        ))
+                      ) : (
+                        DEFAULT_CATEGORIES.map((cat) => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
-                
-                <div className="border rounded-md shadow-sm">
-                  <div className="bg-gradient-to-r from-horus-blue/10 to-horus-red/10 p-3 grid grid-cols-12 gap-2 font-medium">
-                    <div className="col-span-5">العنوان</div>
-                    <div className="col-span-2">التصنيف</div>
-                    <div className="col-span-2">التاريخ</div>
-                    <div className="col-span-1">الحالة</div>
-                    <div className="col-span-2">الإجراءات</div>
+
+                {isLoading ? (
+                  <div className="flex justify-center items-center h-40">
+                    <p className="text-gray-500">جاري تحميل البيانات...</p>
                   </div>
-                  
-                  {filteredNews.length === 0 ? (
-                    <div className="p-4 text-center text-gray-500">
-                      لا توجد نتائج للبحث
+                ) : (
+                  <div className="border rounded-md shadow-sm">
+                    <div className="bg-gradient-to-r from-horus-blue/10 to-horus-red/10 p-3 grid grid-cols-12 gap-2 font-medium">
+                      <div className="col-span-5">العنوان</div>
+                      <div className="col-span-2">التصنيف</div>
+                      <div className="col-span-2">التاريخ</div>
+                      <div className="col-span-1">الحالة</div>
+                      <div className="col-span-2">الإجراءات</div>
                     </div>
-                  ) : (
-                    filteredNews.map((item) => (
+
+                    {filteredNews.length === 0 ? (
+                      <div className="p-4 text-center text-gray-500">
+                        لا توجد نتائج للبحث
+                      </div>
+                    ) : (
+                      filteredNews.map((item) => (
                       <div key={item.id} className="grid grid-cols-12 gap-2 p-3 border-t hover:bg-gray-50 transition-colors">
                         <div className="col-span-5 flex items-center">
                           {item.isTopStory && (
@@ -590,16 +794,16 @@ const Admin = () => {
                           <span className="inline-block w-3 h-3 rounded-full bg-green-500"></span>
                         </div>
                         <div className="col-span-2 flex space-x-2 space-x-reverse">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
+                          <Button
+                            variant="outline"
+                            size="sm"
                             className="border-horus-blue/20 text-horus-blue hover:bg-horus-blue/10"
                             onClick={() => handleEdit(item.id)}
                           >
                             تعديل
                           </Button>
-                          <Button 
-                            variant="destructive" 
+                          <Button
+                            variant="destructive"
                             size="sm"
                             onClick={() => handleDelete(item.id)}
                           >
@@ -610,17 +814,18 @@ const Admin = () => {
                     ))
                   )}
                 </div>
+                )}
               </Card>
             </TabsContent>
-            
+
             {/* تبويب سجل التغييرات (Audit Log) */}
             <TabsContent value="auditLog">
               <Card className="p-6 shadow-sm">
                 <h3 className="text-xl font-medium mb-6 border-r-4 border-horus-blue pr-3">سجل التغييرات</h3>
-                
+
                 <div className="space-y-0 divide-y">
                   {auditLog.map((log) => (
-                    <AuditLogItem 
+                    <AuditLogItem
                       key={log.id}
                       action={log.action}
                       user={log.user}
@@ -631,24 +836,24 @@ const Admin = () => {
                 </div>
               </Card>
             </TabsContent>
-            
+
             <TabsContent value="users">
               <Card className="p-6 shadow-sm">
                 <h3 className="text-xl font-medium mb-6 border-r-4 border-horus-blue pr-3">إدارة المستخدمين</h3>
-                
+
                 <div className="flex justify-between mb-6">
-                  <Input 
-                    placeholder="البحث عن مستخدم..." 
-                    className="max-w-sm border-horus-blue/20 focus:border-horus-blue" 
+                  <Input
+                    placeholder="البحث عن مستخدم..."
+                    className="max-w-sm border-horus-blue/20 focus:border-horus-blue"
                   />
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="border-horus-blue/20 text-horus-blue hover:bg-horus-blue hover:text-white"
                   >
                     إضافة مستخدم جديد
                   </Button>
                 </div>
-                
+
                 <div className="border rounded-md shadow-sm">
                   <div className="bg-gradient-to-r from-horus-blue/10 to-horus-red/10 p-3 grid grid-cols-12 gap-2 font-medium">
                     <div className="col-span-3">اسم المستخدم</div>
@@ -657,7 +862,7 @@ const Admin = () => {
                     <div className="col-span-1">الحالة</div>
                     <div className="col-span-2">الإجراءات</div>
                   </div>
-                  
+
                   {[
                     { name: 'أحمد محمد', email: 'ahmed@horusnews.com', role: 'مدير', status: true },
                     { name: 'سارة خالد', email: 'sara@horusnews.com', role: 'محرر', status: true },
@@ -679,25 +884,25 @@ const Admin = () => {
                 </div>
               </Card>
             </TabsContent>
-            
+
             <TabsContent value="settings">
               <Card className="p-6 shadow-sm">
                 <h3 className="text-xl font-medium mb-6 border-r-4 border-horus-blue pr-3">إعدادات الموقع</h3>
-                
+
                 <div className="space-y-6">
                   <div>
                     <label className="block text-sm font-medium mb-2">اسم الموقع</label>
-                    <Input 
-                      defaultValue="حورس نيوز" 
+                    <Input
+                      defaultValue="حورس نيوز"
                       className="border-horus-blue/20 focus:border-horus-blue"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-2">شعار الموقع</label>
                     <div className="flex items-center gap-4">
-                      <Input 
-                        type="file" 
+                      <Input
+                        type="file"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                       <div className="w-16 h-16 border rounded overflow-hidden">
@@ -705,62 +910,62 @@ const Admin = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium mb-2">وصف الموقع</label>
-                    <Textarea 
+                    <Textarea
                       defaultValue="منصة حورس نيوز الإخبارية العربية الرائدة: تغطية شاملة للأخبار والتحليلات في السياسة والاقتصاد والتكنولوجيا والثقافة والرياضة"
                       className="border-horus-blue/20 focus:border-horus-blue min-h-24"
                     />
                   </div>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">البريد الإلكتروني للتواصل</label>
-                      <Input 
-                        defaultValue="info@horusnews.com" 
+                      <Input
+                        defaultValue="info@horusnews.com"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium mb-2">رقم الهاتف</label>
-                      <Input 
-                        defaultValue="+201234567890" 
+                      <Input
+                        defaultValue="+201234567890"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium mb-2">عدد الأخبار المميزة في الصفحة الرئيسية</label>
-                      <Input 
-                        type="number" 
-                        defaultValue="3" 
-                        min="1" 
-                        max="10" 
+                      <Input
+                        type="number"
+                        defaultValue="3"
+                        min="1"
+                        max="10"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="block text-sm font-medium mb-2">عدد الأخبار في كل قسم</label>
-                      <Input 
-                        type="number" 
-                        defaultValue="4" 
-                        min="1" 
-                        max="12" 
+                      <Input
+                        type="number"
+                        defaultValue="4"
+                        min="1"
+                        max="12"
                         className="border-horus-blue/20 focus:border-horus-blue"
                       />
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2 space-x-reverse">
                     <Switch id="notifications" />
                     <Label htmlFor="notifications">تفعيل نظام الإشعارات</Label>
                   </div>
-                  
+
                   <Button className="bg-horus-blue hover:bg-horus-blue/90 text-white">حفظ الإعدادات</Button>
                 </div>
               </Card>
