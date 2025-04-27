@@ -83,14 +83,14 @@ const VideoSection = () => {
                     <Play className="h-10 w-10 text-white fill-current" />
                   </div>
                 </div>
-                <div className="absolute bottom-0 right-0 left-0 p-6 bg-gradient-to-t from-black to-transparent">
-                  <h3 className="text-white font-bold text-xl mb-3 line-clamp-3">{featuredVideo.title}</h3>
-                  <div className="flex items-center text-white/90 text-sm">
-                    <span className="flex items-center ml-4 bg-black/30 px-2 py-0.5 rounded">
-                      <Play className="h-3 w-3 ml-1 fill-current" />
+                <div className="absolute bottom-0 right-0 left-0 p-4 bg-gradient-to-t from-black to-transparent">
+                  <h3 className="text-white font-bold text-lg mb-2 line-clamp-2">{featuredVideo.title}</h3>
+                  <div className="flex items-center text-white/90 text-xs">
+                    <span className="flex items-center ml-3 bg-black/30 px-1.5 py-0.5 rounded">
+                      <Play className="h-2.5 w-2.5 ml-0.5 fill-current" />
                       {featuredVideo.duration}
                     </span>
-                    <span className="ml-4">{featuredVideo.date}</span>
+                    <span className="ml-3">{featuredVideo.date}</span>
                     {featuredVideo.views && (
                       <span className="flex items-center">
                         <span className="mx-1 text-white/50">•</span>
@@ -124,16 +124,16 @@ const VideoSection = () => {
                   </div>
                   <div className="relative w-full">
                     <div className="absolute inset-0 bg-black bg-opacity-30"></div>
-                    <div className="absolute bottom-0 right-0 left-0 p-3 bg-gradient-to-t from-black to-transparent">
-                      <h3 className="text-white font-bold text-base mb-2 line-clamp-3">{video.title}</h3>
+                    <div className="absolute bottom-0 right-0 left-0 p-2 bg-gradient-to-t from-black to-transparent">
+                      <h3 className="text-white font-bold text-sm mb-1 line-clamp-2">{video.title}</h3>
                       <div className="flex items-center text-white/90 text-xs">
-                        <span className="flex items-center ml-2 bg-black/30 px-1.5 py-0.5 rounded">
-                          <Play className="h-2.5 w-2.5 ml-0.5 fill-current" />
+                        <span className="flex items-center ml-2 bg-black/30 px-1 py-0.5 rounded text-[10px]">
+                          <Play className="h-2 w-2 ml-0.5 fill-current" />
                           {video.duration}
                         </span>
-                        <span>{video.date}</span>
+                        <span className="text-[10px]">{video.date}</span>
                         {video.views && (
-                          <span className="flex items-center mr-2">
+                          <span className="flex items-center mr-1 text-[10px]">
                             <span className="mx-1 text-white/50">•</span>
                             {video.views} مشاهدة
                           </span>
