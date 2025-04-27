@@ -102,14 +102,23 @@ const PhotoGallerySection = () => {
               {displayedGalleries.map(gallery => (
                 <div key={gallery.id} className="relative group overflow-hidden rounded-md">
                   <Link to={`/gallery/${gallery.id}`} className="block h-full">
-                    <div className="relative overflow-hidden h-36">
+                    <div className="relative overflow-hidden h-36" style={{ position: 'relative', overflow: 'hidden' }}>
                       <img
                         src={gallery.image}
-                        alt={gallery.title}
+                        alt=""
+                        aria-hidden="true"
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                       />
-                      <div className="absolute inset-0 bg-black bg-opacity-30"></div>
+                      <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center">
+                        <div className="w-8 h-8 rounded-full bg-horus-gold bg-opacity-80 flex items-center justify-center">
+                          <Image className="h-4 w-4 text-white" />
+                        </div>
+                      </div>
+                      {/* إزالة أي عناصر إضافية في الجزء العلوي */}
                       {/* تم نقل عدد الصور إلى أسفل العنوان */}
+                    </div>
+                    <div className="relative w-full">
+                      <div className="absolute inset-0 bg-black bg-opacity-30"></div>
                       <div className="absolute bottom-0 right-0 left-0 p-2 bg-gradient-to-t from-black to-transparent">
                         <h3 className="text-white font-bold text-sm mb-1 line-clamp-2">{gallery.title}</h3>
                         <div className="flex items-center text-white/90 text-xs">
