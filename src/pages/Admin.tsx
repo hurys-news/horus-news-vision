@@ -237,6 +237,42 @@ const Admin = () => {
     }
   };
 
+  // وظيفة جديدة لإضافة الأخبار مباشرة (بديل لـ RPC)
+  const addNewsDirectly = async (newsData: any) => {
+    try {
+      console.log('محاولة إضافة خبر بالطريقة المباشرة...');
+
+      // إضافة خبر جديد مباشرة إلى جدول الأخبار
+      const { data, error } = await supabase
+        .from('news')
+        .insert([
+          {
+            title: newsData.title,
+            excerpt: newsData.excerpt,
+            content: newsData.content,
+            category_id: newsData.category_id,
+            image: newsData.image,
+            is_top_story: newsData.is_top_story,
+            is_breaking: newsData.is_breaking,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            view_count: 0,
+            tags: newsData.tags
+          }
+        ])
+        .select();
+
+      console.log('نتيجة إضافة الخبر بالطريقة المباشرة:', data, error);
+
+      if (error) throw error;
+
+      return data;
+    } catch (error) {
+      console.error('خطأ في إضافة الخبر بالطريقة المباشرة:', error);
+      throw error;
+    }
+  };
+
   // جلب البيانات عند تحميل الصفحة
   useEffect(() => {
     fetchCategories();
@@ -344,33 +380,33 @@ const Admin = () => {
 
           if (result.error) {
             console.error('خطأ في إضافة الخبر بالطريقة العادية:', result.error);
-            console.log('محاولة إضافة الخبر بدون قيود RLS...');
+            console.log('محاولة إضافة الخبر بالطريقة المباشرة...');
 
-            // محاولة إضافة الخبر بدون قيود RLS
-            const rpcResult = await addNewsWithoutRLS({
+            // محاولة إضافة الخبر بالطريقة المباشرة
+            const directResult = await addNewsDirectly({
               ...newsData,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
               view_count: 0
             });
 
-            console.log('تم إضافة الخبر بنجاح باستخدام RPC:', rpcResult);
+            console.log('تم إضافة الخبر بنجاح بالطريقة المباشرة:', directResult);
           }
         } catch (error) {
           console.error('خطأ في إضافة الخبر:', error);
 
-          // محاولة أخيرة باستخدام RPC
+          // محاولة أخيرة بالطريقة المباشرة
           try {
-            console.log('محاولة أخيرة لإضافة الخبر باستخدام RPC...');
-            await addNewsWithoutRLS({
+            console.log('محاولة أخيرة لإضافة الخبر بالطريقة المباشرة...');
+            await addNewsDirectly({
               ...newsData,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
               view_count: 0
             });
-          } catch (rpcError) {
-            console.error('فشلت جميع محاولات إضافة الخبر:', rpcError);
-            throw rpcError;
+          } catch (directError) {
+            console.error('فشلت جميع محاولات إضافة الخبر:', directError);
+            throw directError;
           }
         }
 
@@ -798,16 +834,16 @@ const Admin = () => {
                               tags: tagsArray.length > 0 ? tagsArray : null
                             };
 
-                            console.log('استخدام RPC مباشرة لإضافة خبر...');
-                            const result = await addNewsWithoutRLS(newsData);
-                            console.log('نتيجة إضافة الخبر باستخدام RPC مباشرة:', result);
+                            console.log('استخدام الطريقة المباشرة لإضافة خبر...');
+                            const result = await addNewsDirectly(newsData);
+                            console.log('نتيجة إضافة الخبر بالطريقة المباشرة:', result);
 
                             // إضافة سجل النشر
                             try {
                               const auditResult = await supabase.from('audit_log').insert({
-                                action: 'إضافة محتوى (RPC)',
+                                action: 'إضافة محتوى (مباشر)',
                                 user_id: user?.id,
-                                content: `إضافة خبر جديد باستخدام RPC: ${title}`,
+                                content: `إضافة خبر جديد بالطريقة المباشرة: ${title}`,
                                 created_at: new Date().toISOString()
                               });
                               console.log('نتيجة إضافة سجل النشر:', auditResult);
@@ -817,7 +853,7 @@ const Admin = () => {
 
                             toast({
                               title: "تم النشر بنجاح",
-                              description: "تم حفظ المحتوى ونشره على الموقع باستخدام RPC"
+                              description: "تم حفظ المحتوى ونشره على الموقع بالطريقة المباشرة"
                             });
 
                             // إعادة تحميل الأخبار وسجل التغييرات
@@ -827,10 +863,10 @@ const Admin = () => {
                             // إعادة تعيين النموذج
                             resetForm();
                           } catch (error) {
-                            console.error('خطأ في إضافة الخبر باستخدام RPC:', error);
+                            console.error('خطأ في إضافة الخبر بالطريقة المباشرة:', error);
                             toast({
                               title: "خطأ",
-                              description: "حدث خطأ أثناء حفظ المحتوى باستخدام RPC",
+                              description: "حدث خطأ أثناء حفظ المحتوى بالطريقة المباشرة",
                               variant: "destructive"
                             });
                           } finally {
@@ -840,7 +876,7 @@ const Admin = () => {
                         className="mt-4 bg-horus-gold hover:bg-horus-gold/90 text-white"
                         disabled={isSaving}
                       >
-                        نشر باستخدام RPC
+                        نشر بالطريقة المباشرة
                       </Button>
                     )}
 

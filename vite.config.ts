@@ -7,7 +7,7 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 8080,
+    port: 8081,
   },
   plugins: [
     react(),
@@ -15,10 +15,10 @@ export default defineConfig(({ mode }) => ({
     componentTagger(),
   ].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
       // تجاوز لملف isVirtualEvent.ts لإصلاح تحذير mozInputSource
-      "@react-aria/utils/src/isVirtualEvent": path.resolve(__dirname, "./src/utils/isVirtualEvent.ts"),
-    },
+      { find: /^@react-aria\/utils\/src\/isVirtualEvent\.ts$/, replacement: path.resolve(__dirname, "./src/utils/isVirtualEvent.ts") }
+    ],
   },
 }));

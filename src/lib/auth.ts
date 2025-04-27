@@ -1,27 +1,55 @@
 // خدمة المصادقة باستخدام Supabase
 import { supabase } from './supabase';
 import { User } from './types';
+import { createClient } from '@supabase/supabase-js';
+import { Database } from '../types/supabase';
 
 // دالة تسجيل الدخول باستخدام البريد الإلكتروني وكلمة المرور
 export async function signInWithEmail(email: string, password: string): Promise<User> {
   try {
+    console.log('بدء محاولة تسجيل الدخول لـ:', email);
+    console.log('متغيرات البيئة:', {
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL ? 'موجود' : 'غير موجود',
+      supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'موجود' : 'غير موجود'
+    });
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
 
-    if (error) throw error;
+    if (error) {
+      console.error('خطأ في تسجيل الدخول:', error);
+      console.error('تفاصيل الخطأ:', {
+        message: error.message,
+        status: error.status,
+        name: error.name
+      });
+      throw error;
+    }
+
+    console.log('تم تسجيل الدخول بنجاح:', {
+      userId: data.user.id,
+      email: data.user.email,
+      sessionExpires: data.session?.expires_at
+    });
 
     // جلب معلومات الملف الشخصي
+    console.log('جلب معلومات الملف الشخصي للمستخدم:', data.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
       .eq('user_id', data.user.id)
       .single();
 
-    if (profileError && profileError.code !== 'PGRST116') throw profileError;
+    if (profileError) {
+      console.error('خطأ في جلب الملف الشخصي:', profileError);
+      if (profileError.code !== 'PGRST116') throw profileError;
+    }
 
-    return {
+    console.log('معلومات الملف الشخصي:', profile || 'لم يتم العثور على ملف شخصي');
+
+    const user = {
       id: data.user.id,
       name: profile?.name || data.user.email?.split('@')[0] || 'مستخدم',
       email: data.user.email || '',
@@ -30,8 +58,19 @@ export async function signInWithEmail(email: string, password: string): Promise<
       savedNews: profile?.saved_news || [],
       followedCategories: profile?.followed_categories || []
     };
-  } catch (error) {
-    console.error('Error signing in:', error);
+
+    console.log('تم إنشاء كائن المستخدم:', user);
+
+    return user;
+  } catch (error: any) {
+    console.error('خطأ في تسجيل الدخول:', error);
+    console.error('تفاصيل الخطأ:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      stack: error.stack
+    });
     throw error;
   }
 }
@@ -110,7 +149,7 @@ export async function updatePassword(password: string): Promise<void> {
 export async function getCurrentUser(): Promise<User | null> {
   try {
     const { data: { session }, error } = await supabase.auth.getSession();
-    
+
     if (error) throw error;
     if (!session) return null;
 
@@ -156,10 +195,107 @@ export async function updateUserProfile(userId: string, data: Partial<Omit<User,
     // إعادة جلب معلومات المستخدم المحدثة
     const currentUser = await getCurrentUser();
     if (!currentUser) throw new Error('لم يتم العثور على المستخدم');
-    
+
     return currentUser;
   } catch (error) {
     console.error('Error updating user profile:', error);
+    throw error;
+  }
+}
+
+// دالة تسجيل الدخول البديلة باستخدام عميل Supabase جديد
+export async function signInWithEmailDirect(email: string, password: string): Promise<User> {
+  try {
+    console.log('بدء محاولة تسجيل الدخول المباشر لـ:', email);
+
+    // إنشاء عميل Supabase جديد
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    console.log('متغيرات البيئة للتسجيل المباشر:', {
+      supabaseUrl: supabaseUrl ? 'موجود' : 'غير موجود',
+      supabaseAnonKey: supabaseAnonKey ? 'موجود' : 'غير موجود'
+    });
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('متغيرات البيئة غير مكتملة');
+    }
+
+    // إنشاء عميل جديد
+    const directClient = createClient<Database>(supabaseUrl, supabaseAnonKey);
+    console.log('تم إنشاء عميل Supabase جديد');
+
+    // محاولة تسجيل الدخول
+    const { data, error } = await directClient.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      console.error('خطأ في تسجيل الدخول المباشر:', error);
+      console.error('تفاصيل الخطأ المباشر:', {
+        message: error.message,
+        status: error.status,
+        name: error.name
+      });
+      throw error;
+    }
+
+    console.log('تم تسجيل الدخول المباشر بنجاح:', {
+      userId: data.user.id,
+      email: data.user.email,
+      sessionExpires: data.session?.expires_at
+    });
+
+    // جلب معلومات الملف الشخصي
+    console.log('جلب معلومات الملف الشخصي للمستخدم (مباشر):', data.user.id);
+    const { data: profile, error: profileError } = await directClient
+      .from('profiles')
+      .select('*')
+      .eq('user_id', data.user.id)
+      .single();
+
+    if (profileError) {
+      console.error('خطأ في جلب الملف الشخصي (مباشر):', profileError);
+      // لا نريد إيقاف العملية إذا لم يتم العثور على ملف شخصي
+      if (profileError.code !== 'PGRST116') {
+        console.warn('تجاهل خطأ الملف الشخصي والمتابعة');
+      }
+    }
+
+    console.log('معلومات الملف الشخصي (مباشر):', profile || 'لم يتم العثور على ملف شخصي');
+
+    // إنشاء كائن المستخدم حتى لو لم يكن هناك ملف شخصي
+    const user = {
+      id: data.user.id,
+      name: profile?.name || data.user.email?.split('@')[0] || 'مستخدم',
+      email: data.user.email || '',
+      avatar: profile?.avatar || undefined,
+      role: profile?.role || 'user',
+      savedNews: profile?.saved_news || [],
+      followedCategories: profile?.followed_categories || []
+    };
+
+    console.log('تم إنشاء كائن المستخدم (مباشر):', user);
+
+    // تحديث الجلسة في العميل الرئيسي
+    await supabase.auth.setSession({
+      access_token: data.session?.access_token || '',
+      refresh_token: data.session?.refresh_token || ''
+    });
+
+    console.log('تم تحديث الجلسة في العميل الرئيسي');
+
+    return user;
+  } catch (error: any) {
+    console.error('خطأ في تسجيل الدخول المباشر:', error);
+    console.error('تفاصيل الخطأ المباشر:', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      stack: error.stack
+    });
     throw error;
   }
 }

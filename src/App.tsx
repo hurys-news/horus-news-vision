@@ -11,8 +11,13 @@ import Sports from "./pages/Sports";
 import NewsDetail from "./pages/NewsDetail";
 import CategoryPage from "./pages/CategoryPage";
 import Login from "./pages/Login";
+import LoginDirect from "./pages/LoginDirect";
+import BasicLogin from "./pages/BasicLogin";
+import SimpleLogin from "./pages/SimpleLogin";
 import ForgotPassword from "./pages/ForgotPassword";
 import Admin from "./pages/Admin";
+import SimpleAdmin from "./pages/SimpleAdmin";
+import TestAuth from "./pages/TestAuth";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,8 +50,13 @@ const App = () => (
             <Route path="/news/:id" element={<NewsDetail />} />
             <Route path="/category/:slug" element={<CategoryPage />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/login-direct" element={<LoginDirect />} />
+            <Route path="/basic-login" element={<BasicLogin />} />
+            <Route path="/simple-login" element={<SimpleLogin />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/admin/*" element={<Admin />} />
+            <Route path="/simple-admin" element={<SimpleAdmin />} />
+            <Route path="/test-auth" element={<TestAuth />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

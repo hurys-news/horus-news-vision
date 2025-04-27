@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
@@ -19,8 +18,7 @@ import {
 } from '@/components/ui/form';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
-import { Textarea } from "@/components/ui/textarea";
-import { signInWithEmail, signInWithEmailDirect } from '@/lib/auth';
+import { signInWithEmailDirect } from '@/lib/auth';
 
 // تعريف مخطط التحقق باستخدام zod
 const formSchema = z.object({
@@ -30,16 +28,13 @@ const formSchema = z.object({
     .email({ message: 'يرجى إدخال بريد إلكتروني صحيح' }),
   password: z
     .string()
-    .min(8, { message: 'كلمة المرور يجب أن تكون على الأقل 8 أحرف' })
-    .regex(/[A-Z]/, { message: 'يجب أن تحتوي على حرف كبير واحد على الأقل' })
-    .regex(/[a-z]/, { message: 'يجب أن تحتوي على حرف صغير واحد على الأقل' })
-    .regex(/[0-9]/, { message: 'يجب أن تحتوي على رقم واحد على الأقل' }),
+    .min(1, { message: 'كلمة المرور مطلوبة' }),
   rememberMe: z.boolean().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-const Login = () => {
+const LoginDirect = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -58,64 +53,34 @@ const Login = () => {
   const onSubmit = async (data: FormValues) => {
     try {
       setIsLoading(true);
-
-      console.log('محاولة تسجيل الدخول باستخدام:', {
+      
+      console.log('محاولة تسجيل الدخول المباشر باستخدام:', { 
         email: data.email,
         passwordLength: data.password.length,
         supabaseUrl: import.meta.env.VITE_SUPABASE_URL ? 'موجود' : 'غير موجود',
         supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY ? 'موجود' : 'غير موجود'
       });
 
-      // محاولة تسجيل الدخول بالطريقة المباشرة أولاً
-      try {
-        console.log('محاولة تسجيل الدخول بالطريقة المباشرة...');
-        const user = await signInWithEmailDirect(data.email, data.password);
+      // تسجيل الدخول باستخدام الطريقة المباشرة
+      const user = await signInWithEmailDirect(data.email, data.password);
+      
+      console.log('تم تسجيل الدخول المباشر بنجاح:', { 
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      });
 
-        console.log('تم تسجيل الدخول بنجاح بالطريقة المباشرة:', {
-          userId: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        });
+      toast({
+        title: "تم تسجيل الدخول بنجاح",
+        description: `مرحبًا بك ${user.name} في حورس نيوز`,
+      });
 
-        toast({
-          title: "تم تسجيل الدخول بنجاح",
-          description: `مرحبًا بك ${user.name} في حورس نيوز (طريقة مباشرة)`,
-        });
-
-        // الانتقال إلى الصفحة الرئيسية بعد تسجيل الدخول
-        navigate('/');
-        return;
-      } catch (directError: any) {
-        console.error('فشل تسجيل الدخول بالطريقة المباشرة، محاولة الطريقة العادية...', directError);
-
-        // محاولة تسجيل الدخول بالطريقة العادية كخطة بديلة
-        try {
-          const user = await signInWithEmail(data.email, data.password);
-
-          console.log('تم تسجيل الدخول بنجاح بالطريقة العادية:', {
-            userId: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role
-          });
-
-          toast({
-            title: "تم تسجيل الدخول بنجاح",
-            description: `مرحبًا بك ${user.name} في حورس نيوز`,
-          });
-
-          // الانتقال إلى الصفحة الرئيسية بعد تسجيل الدخول
-          navigate('/');
-          return;
-        } catch (standardError: any) {
-          console.error('فشل تسجيل الدخول بالطريقة العادية أيضًا:', standardError);
-          throw standardError; // إعادة رمي الخطأ للمعالجة في كتلة catch الخارجية
-        }
-      }
+      // الانتقال إلى الصفحة الرئيسية بعد تسجيل الدخول
+      navigate('/');
     } catch (error: any) {
-      console.error('خطأ في تسجيل الدخول:', error);
-      console.error('تفاصيل الخطأ:', {
+      console.error('خطأ في تسجيل الدخول المباشر:', error);
+      console.error('تفاصيل الخطأ المباشر:', {
         message: error.message,
         code: error.code,
         details: error.details,
@@ -128,16 +93,16 @@ const Login = () => {
         description: error.message || "البريد الإلكتروني أو كلمة المرور غير صحيحة",
         variant: "destructive",
       });
-
+      
       // إضافة رابط لصفحة اختبار المصادقة
       toast({
         title: "اختبار المصادقة",
         description: (
           <div>
             <p>يمكنك تجربة صفحة اختبار المصادقة للتشخيص</p>
-            <Button
-              variant="outline"
-              className="mt-2"
+            <Button 
+              variant="outline" 
+              className="mt-2" 
               onClick={() => navigate('/test-auth')}
             >
               انتقل إلى صفحة الاختبار
@@ -170,8 +135,8 @@ const Login = () => {
           <div className="flex justify-center mb-2">
             <Logo size="large" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">تسجيل الدخول</h1>
-          <p className="text-gray-600">مرحباً بعودتك، سجل دخولك للمتابعة</p>
+          <h1 className="text-2xl font-bold mb-2">تسجيل الدخول المباشر</h1>
+          <p className="text-gray-600">مرحباً بعودتك، سجل دخولك بالطريقة المباشرة</p>
         </div>
 
         <Form {...form}>
@@ -251,7 +216,7 @@ const Login = () => {
             />
 
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول (طريقة محسنة)'}
+              {isLoading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول المباشر'}
             </Button>
 
             <div className="flex items-center my-4">
@@ -260,19 +225,14 @@ const Login = () => {
               <Separator className="flex-1" />
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
-              <div className="text-center text-sm text-gray-500 mb-2">
-                سيتم محاولة تسجيل الدخول بالطريقة المباشرة أولاً، ثم بالطريقة العادية إذا فشلت الأولى
-              </div>
-              <Button
-                variant="outline"
-                type="button"
-                className="w-full"
-                onClick={() => navigate('/basic-login')}
-              >
-                تجربة تسجيل الدخول الأساسي
-              </Button>
-            </div>
+            <Button 
+              variant="outline" 
+              type="button" 
+              className="w-full"
+              onClick={() => navigate('/login')}
+            >
+              العودة إلى تسجيل الدخول العادي
+            </Button>
           </form>
         </Form>
 
@@ -291,4 +251,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default LoginDirect;
